@@ -3,20 +3,38 @@
 #include <GxEPD2_BW.h>
 #include <Adafruit_GFX.h>
 
-// E-Ink 1.54" 200x200
+// Dostępne opcje (odkomentuj jeden):
+#define DISPLAY_154_D67
+//#define DISPLAY_290C_RED
+
+
+// ===============================
+// Konfiguracja pinów
 #define CS_PIN   2   // D4
 #define DC_PIN   4   // D2
 #define RST_PIN  5   // D1
 #define BUSY_PIN 16  // D0
+// ===============================
 
-GxEPD2_BW<GxEPD2_154_D67, GxEPD2_154_D67::HEIGHT> display(GxEPD2_154_D67(CS_PIN, DC_PIN, RST_PIN, BUSY_PIN));
+// ===============================
+// Inicjalizacja wyświetlacza
+#if defined(DISPLAY_154_D67)
+  GxEPD2_BW<GxEPD2_154_D67, GxEPD2_154_D67::HEIGHT> display(GxEPD2_154_D67(CS_PIN, DC_PIN, RST_PIN, BUSY_PIN));
+#elif defined(DISPLAY_290C_RED)
+  #include <GxEPD2_3C.h>
+  GxEPD2_3C<GxEPD2_290c_GDEH029Z13, GxEPD2_290c_GDEH029Z13::HEIGHT> display(GxEPD2_290c_GDEH029Z13(CS_PIN, DC_PIN, RST_PIN, BUSY_PIN));
+#endif
+// ===============================
 
 ESP8266WebServer server(80);
 
-const char* ssid = "epaper-ap";
+#define MAX_UPLOAD_SIZE 10000
+uint8_t fileBuffer[MAX_UPLOAD_SIZE];
+int bufferOffset = 0;
+
+const char* ssid = "InteligentnaEtykietaAP";
 const char* password = "epaper123";
 
-// Strona HTML testowa (jeśli chcesz dodać podgląd)
 const char* index_html = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -39,12 +57,21 @@ void handleUpload() {
 
   if (upload.status == UPLOAD_FILE_START) {
     Serial.println("Rozpoczynam odbieranie obrazu...");
+    bufferOffset = 0;
   } else if (upload.status == UPLOAD_FILE_WRITE) {
-    Serial.printf("Odebrano %d bajtów\n", upload.currentSize);
-    renderPBM(upload.buf, upload.currentSize);
+    if ((bufferOffset + upload.currentSize) <= MAX_UPLOAD_SIZE) {
+      memcpy(fileBuffer + bufferOffset, upload.buf, upload.currentSize);
+      bufferOffset += upload.currentSize;
+      Serial.printf("Odebrano %d bajtów\n", upload.currentSize);
+    } else {
+      Serial.println("Przekroczono maksymalny rozmiar bufora!");
+    }
   } else if (upload.status == UPLOAD_FILE_END) {
     Serial.println("Zakończono odbiór pliku");
+    Serial.printf("Odebrano w sumie %d bajtów\n", bufferOffset);
+    renderPBM(fileBuffer, bufferOffset);
   }
+  
 }
 int parsePBMHeader(uint8_t* data, size_t length, int& headerEnd, int& width, int& height) {
   int pos = 0;
